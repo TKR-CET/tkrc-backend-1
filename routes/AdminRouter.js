@@ -10,3 +10,4 @@ router.get("/facultyprofiles", verifyToken(["admin"]), getAllFacultyProfiles); /
 router.get("/facultyprofile/:loginId", verifyToken(["admin"]), getFacultyProfileByLoginId); // Protected
 
 module.exports = router;
+
