@@ -169,7 +169,16 @@ const upsertSectionTimetable = async (req, res) => {
             );
             if (dayObj.periods.length !== initialLength) modified = true;
         });
-        if (modified) await faculty.save(); 
+
+        // Remove entirely empty days
+        const initialDays = faculty.timetable.length;
+        faculty.timetable = faculty.timetable.filter(dayObj => dayObj.periods.length > 0);
+        if (faculty.timetable.length !== initialDays) modified = true;
+
+        if (modified) {
+            faculty.markModified('timetable'); 
+            await faculty.save(); 
+        }
     }
 
     // STEP 2: PROCESS NEW TIMETABLE & ENRICH DATA
@@ -216,9 +225,10 @@ const upsertSectionTimetable = async (req, res) => {
     }
 
     sectionData.timetable = validatedTimetable;
+    yearData.markModified('departments'); 
     await yearData.save();
 
-    // STEP 3: DISTRIBUTE PERIODS TO FACULTY
+    // STEP 3: BULLETPROOF MONGOOSE SAVE FOR FACULTY
     for (const fId in facultyUpdates) {
         const facultyToUpdate = await Faculty.findOne({ facultyId: fId });
         
@@ -226,20 +236,22 @@ const upsertSectionTimetable = async (req, res) => {
             const updatesToAdd = facultyUpdates[fId];
 
             updatesToAdd.forEach(update => {
-                let dayEntry = facultyToUpdate.timetable.find(d => d.day === update.day);
+                let dayIndex = facultyToUpdate.timetable.findIndex(d => d.day === update.day);
                 
-                if (!dayEntry) {
-                    facultyToUpdate.timetable.push({ day: update.day, periods: [] });
-                    dayEntry = facultyToUpdate.timetable[facultyToUpdate.timetable.length - 1];
+                // Using exact Array Indexing to force Mongoose to track changes
+                if (dayIndex === -1) {
+                    facultyToUpdate.timetable.push({ day: update.day, periods: [update.period] });
+                } else {
+                    facultyToUpdate.timetable[dayIndex].periods.push(update.period);
                 }
-                
-                dayEntry.periods.push(update.period);
             });
 
+            // Sort periods chronologically 
             facultyToUpdate.timetable.forEach(dayEntry => {
                 dayEntry.periods.sort((a, b) => a.periodNumber - b.periodNumber);
             });
 
+            facultyToUpdate.markModified('timetable'); // Force save nested array
             await facultyToUpdate.save();
         }
     }
